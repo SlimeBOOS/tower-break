@@ -15,6 +15,7 @@ typedef struct World {
 	Entity entities[MAX_ENTITIES];
 
 	InventorySlot inventory[MAX_INVENTORY_SLOTS];
+	InventorySlot *held_slot;
 } World;
 
 World *world = NULL;
@@ -273,8 +274,8 @@ int entry(int argc, char **argv) {
 			draw_frame.view = m4_translate(draw_frame.view, v3(camera_pos.x, camera_pos.y, 0));
 		}
 
-		Vector2 mouse_pos = get_world_mouse();
-		Entity *entity_under_mouse = entity_get_at_tile(mouse_pos);
+		Vector2 world_mouse_pos = get_world_mouse();
+		Entity *entity_under_mouse = entity_get_at_tile(world_mouse_pos);
 
 		draw_tile_grid(
 			color_blend_opacity(COLOR_BLACK, 0.5f),
@@ -314,7 +315,7 @@ int entry(int argc, char **argv) {
 		draw_line(v2(0, -3), v2(0, 3), 1, COLOR_RED);
 		draw_line(v2(-3, 0), v2(3, 0), 1, COLOR_RED);
 
-		Vector2 mouse_tile_pos = round_world_pos_to_tile(mouse_pos);
+		Vector2 mouse_tile_pos = round_world_pos_to_tile(world_mouse_pos);
 		draw_rect(mouse_tile_pos, tile_size, color_blend_opacity(COLOR_WHITE, 0.25f));
 
 		{
@@ -337,6 +338,8 @@ int entry(int argc, char **argv) {
 			push_view_matrix();
 			draw_frame.view = m4_scalar(1);
 
+			Vector2 ui_mouse_pos = get_world_mouse();
+
 			Rect screen_rect = {
 				.pos = v2_divf(canvas_size, -2),
 				.size = canvas_size
@@ -354,22 +357,43 @@ int entry(int argc, char **argv) {
 				Rect slot_rect = rect_stack_next(&slot_stack, slot_size);
 				Vector2 slot_center = rect_center(slot_rect);
 
-				draw_rect(slot_rect.pos, slot_rect.size, color_blend_opacity(COLOR_BLACK, 0.5f));
-				if (slot->is_used) {
-					Item *item = items_get(slot->item_id);
-					Sprite *sprite = sprites_get(item->sprite_id);
-					sprite_draw(sprite, slot_center);
+				bool mouse_inside = false;
+				if (rect_is_v2_inside(slot_rect, ui_mouse_pos)) {
+					mouse_inside = true;
 
-					draw_text_pivot(
-						font,
-						sprint(get_temporary_allocator(), "%d/%d", slot->count, item->max_stack_size),
-						32,
-						v2_add(slot_center, v2(0, slot_size/2)),
-						v2(0.2, 0.2),
-						COLOR_WHITE,
-						v2(0.5, 0.5)
-					);
+					if (is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
+						consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+						world->held_slot = slot;
+					}
 				}
+
+				draw_rect(slot_rect.pos, slot_rect.size, color_blend_opacity(mouse_inside ? COLOR_WHITE : COLOR_BLACK, 0.5f));
+
+				if (!slot->is_used) continue;
+
+				Item *item = items_get(slot->item_id);
+				Sprite *sprite = sprites_get(item->sprite_id);
+				sprite_draw(sprite, slot_center);
+
+				draw_text_pivot(
+					font,
+					sprint(get_temporary_allocator(), "%d/%d", slot->count, item->max_stack_size),
+					32,
+					v2_add(slot_center, v2(0, slot_size/2)),
+					v2(0.2, 0.2),
+					COLOR_WHITE,
+					v2(0.5, 0.5)
+				);
+			}
+
+			if (is_key_just_released(MOUSE_BUTTON_LEFT)) {
+				world->held_slot = NULL;
+			}
+
+			if (world->held_slot != NULL) {
+				Item *item = items_get(world->held_slot->item_id);
+				Sprite *sprite = sprites_get(item->sprite_id);
+				sprite_draw(sprite, ui_mouse_pos);
 			}
 
 			pop_view_matrix();
